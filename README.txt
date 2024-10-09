@@ -1,3 +1,7 @@
+CSE 360 Class Project – Phase 1
+Team: TH55
+Zachary Koopman, Avishkar Deshmane, Saideep Ambari, Kaustav Kalra, Jagger Lewis-Grenz,	Alexander Gmyrek
+
 Introduction
 The CSE 360 Help System is a software project designed by our team that is intended to provide secure role-based access control and secure identity management for users 
 that are a part of a multi-role academic system. The system will be built around the concept of multiple roles, and these roles enable individuals to function as 
