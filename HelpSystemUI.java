@@ -31,6 +31,7 @@ public class HelpSystemUI extends Application {
     private String inviteRole;  // Role associated with the invitation
     private String oneTimePassword;  // One-time password for login
     private String oneTimePasswordUsername;  // Username for one-time password login
+    private List<String> usedCodes = new ArrayList<>(); //Track used OTP codes
  
     @Override
     public void start(Stage primaryStage) {
@@ -118,8 +119,24 @@ public class HelpSystemUI extends Application {
             if (username.equals(oneTimePasswordUsername) && oneTimePasswordText.getText().equals(oneTimePassword)){
             	//If there was a match, login as the user and bring them to a screen where they can reset their
             	//password to one of their choosing.
-            	currentUser = userManager.login(oneTimePasswordUsername, oneTimePassword);
-            	showPasswordResetScreen(stage);
+            	//Also, generate a boolean so that codes cannot be reused.
+            	boolean flagLeave = false;
+            	//Iterate through each code to ensure there are no matches
+            	for (int i = 0; i < usedCodes.size(); i++) {
+            		if (oneTimePassword.equals(usedCodes.get(i))) {
+            			//Match found so code can't be used
+            			flagLeave = true;
+            		}
+            	}
+            	if (flagLeave != true) {
+            		//New code so let user generate the new password
+            		currentUser = userManager.login(oneTimePasswordUsername, oneTimePassword);
+            		showPasswordResetScreen(stage);
+            		usedCodes.add(oneTimePassword);
+            	}else {
+            		//Reused code so warn user
+                    showAlert("OTP CODE REUSE", "Please generate a new OTP. OTPs cannot be reused!");
+            	}
             }
             
             //First, ensure there password field contains input and the two fields match before allowing an
@@ -871,4 +888,3 @@ public class HelpSystemUI extends Application {
     public static void main(String[] args) {
         launch(args);
     }
-}
