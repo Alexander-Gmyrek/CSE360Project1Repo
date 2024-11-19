@@ -5,9 +5,15 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Manages user accounts and provides functionality for user authentication, creation, and management.
- */
+/*******
+* <p> UserManager Class. </p>
+*
+* <p>  Manages user accounts and provides functionality for user authentication, creation, and management.
+*
+* @author <Zach>
+* @version 1.00 10/16/2024
+*/
+
 public class UserManager {
     private List<User> users = new ArrayList<>(); // List to store user accounts
     

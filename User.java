@@ -3,9 +3,17 @@ package ProjectUI;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Represents a user in the application with associated details such as username, password, roles, and personal information.
- */
+/*******
+* <p> User Class. </p>
+*
+* <p> Description:   Represents a user in the application with associated details such as username, password,
+*  roles, and personal information.
+*
+* @author <Zach>
+* @version 1.00 10/16/2024
+*/
+
+
 public class User {
     private String username;
     private String password;

@@ -20,13 +20,27 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+
+import Encryption.EncryptionHelper;
+import Encryption.EncryptionUtils;
 import javafx.scene.layout.ColumnConstraints;
-/**
- * HelpSystemUI class that represents the user interface for the Help System application.
- * It handles user login, account creation, and role management using JavaFX.
- */
+
+/*******
+* <p> HelpSystemUI Class. </p>
+*
+* <p> Description: This is the class that sets up the interface for role management, user login, help article creation, help article
+* management and encryption of the articles when needed. 
+*
+* @author <Zach>
+* @version 1.00 10/16/2024
+* @version 2.00 11/14/2024
+*/
+
 public class HelpSystemUI extends Application {
 	private UserManager userManager = new UserManager();  // Initialize UserManager
     private User currentUser;  // Track the currently logged-in user
@@ -37,15 +51,22 @@ public class HelpSystemUI extends Application {
     private String oneTimePassword;  // One-time password for login
     private String oneTimePasswordUsername;  // Username for one-time password login
     private List<String> usedCodes = new ArrayList<>(); //Track used OTP codes
-  //Declares instance variables to make a database and collect user input
+    private boolean isAdmin = false;
+    private boolean isGeneral = false;
+    //Declares instance variables to make a database and collect user input
   	private static DatabaseHelper databaseHelper;
+  	//Helps with encryption and uses premade IV value
+  	private EncryptionHelper encryptionHelper;
+	private String ivVal = "znvwew12445ge2083";
+	private User admin = null;
  
     @Override
     public void start(Stage primaryStage) throws Exception {
         primaryStage.setTitle("Help System");
         
-        // Initialize DatabaseHelper
+        // Initialize DatabaseHelper and encryptionHelper
         databaseHelper = new DatabaseHelper();
+        encryptionHelper = new EncryptionHelper();
         databaseHelper.connectToDatabase();
         
         // Initial login or account creation
@@ -64,7 +85,7 @@ public class HelpSystemUI extends Application {
         grid.setVgap(10);  // Set vertical gap between rows
         grid.setHgap(10);  // Set horizontal gap between columns
         
-     // Create the Label
+        // Create the Label
         Label welcomeLabel = new Label("Welcome, Enter Credentials Below to Login");
         welcomeLabel.setFont(Font.font("System", FontWeight.BOLD, 16)); // Set font to bold and size
         welcomeLabel.setTextAlignment(TextAlignment.CENTER);
@@ -171,7 +192,9 @@ public class HelpSystemUI extends Application {
             		//after this user, the next account will not be the first
             		userManager.createAccount(username, password, adminRole);
             		currentUser = userManager.login(username, password);
+            		databaseHelper.addUser(currentUser.getUsername());
             		first = false;
+            		admin = currentUser;
             		//Show screen where admin can setup their information
             		showAccountSetupScreen(stage);
             		
@@ -182,6 +205,7 @@ public class HelpSystemUI extends Application {
             		List<String> roles = new ArrayList<>();
             		userManager.createAccount(username, password, roles);
             		currentUser = userManager.login(username, password);
+            		databaseHelper.addUser(currentUser.getUsername());
             		//Check to see if user needs to add in additional account information still
             		if (currentUser.isSetupComplete()) {
             			showRoleSelectionScreen(stage);
@@ -256,6 +280,7 @@ public class HelpSystemUI extends Application {
         Label nameLabel = new Label("Name (First, Middle, Last, Preferred):");
         grid.add(nameLabel, 0, 1);
         
+        //Fields with user names information
         TextField firstNameField = new TextField();
         firstNameField.setPromptText("First Name");
         
@@ -279,6 +304,7 @@ public class HelpSystemUI extends Application {
         for (int i = 0; i < topics.length; i++) {
             Label topicLabel = new Label(topics[i]);
             grid.add(topicLabel, 0, 7 + i);
+            //Add skill levels to the combobox
             ComboBox<String> skillLevelCombo = new ComboBox<>();
             skillLevelCombo.getItems().addAll("Beginner", "Intermediate", "Advanced", "Expert");
             skillLevelCombo.setValue("Intermediate"); // Default
@@ -340,7 +366,7 @@ public class HelpSystemUI extends Application {
         Label roleLabel = new Label("Select Role (Use both boxes for multiple roles):");
         grid.add(roleLabel, 0, 0);
         ComboBox<String> roleComboBox = new ComboBox<>();
-        roleComboBox.getItems().addAll("Student", "Instructor");
+        roleComboBox.getItems().addAll("Student", "Instructor", "Admin");
         grid.add(roleComboBox, 1, 0);
         
         //A second combobox in case the user has two roles.
@@ -368,13 +394,18 @@ public class HelpSystemUI extends Application {
             	//add student role accordingly
             	currentUser.addRole("Student");
             //bring user to instructor home page since they are an instructor
-            }else {
+            
+            }else if (selectedRole == "Admin"){
+            	currentUser.addRole("Admin");
+            	adminRoleHomePage(stage, "Admin");
+            }
+            else {
             	instructorRoleHomePage(stage, selectedRole);
             	//add instructor role accordingly
             	currentUser.addRole("Instructor");
             }
         });
-        Scene scene = new Scene(grid, 400, 600);
+        Scene scene = new Scene(grid, 700, 200);
         stage.setScene(scene);
         stage.show();
     }
@@ -396,17 +427,537 @@ public class HelpSystemUI extends Application {
         col1.setPercentWidth(100);
         grid.getColumnConstraints().add(col1);
         //Title of the page to let user know where they are at
-        Label homePageLabel = new Label(role + " Home Page");
+        Label homePageLabel = new Label(role + " Home Page" + "       "  + "Hello " + currentUser.getUsername());
         grid.add(homePageLabel, 0, 0);
+        homePageLabel.setFont(Font.font("System", FontWeight.BOLD, 16));
+        
+        Label sendMessageLabel = new Label("Send Message to Instructor");
+        grid.add(sendMessageLabel, 0, 1);
+        
+        Button sendMessageButton = new Button("Generic/Specifc Messages");
+        sendMessageButton.setStyle("-fx-background-color: #FFD700;");
+        grid.add(sendMessageButton, 0, 2);
+        sendMessageButton.setOnAction(e -> messageScreen(stage));
+        
+        Button searchArticlesB = new Button("Search for Help Articles");
+        searchArticlesB.setStyle("-fx-background-color: #FFD700;");
+        grid.add(searchArticlesB, 0, 3);
+        searchArticlesB.setOnAction(e -> searchHelpArticlesPage(stage));
         
         //Allow user to logout with logout button
         Button logoutButton = new Button("Log Out");
         logoutButton.setStyle("-fx-background-color: #FFD700;");
-        grid.add(logoutButton, 0, 1);
+        grid.add(logoutButton, 0, 4);
         //Action event handling that brings user back to login screen from the start
         logoutButton.setOnAction(e -> showLoginScreen(stage));
         Scene scene = new Scene(grid, 400, 600);
         stage.setScene(scene);
+        stage.show();
+    }
+    
+    /**
+     * Page that allows students and instructors to search for help articles in the database using their 
+     * assigned access that is stored in another database. Users can specify based on content level, search query,
+     * and group to find and display what they need.
+     * @param stage
+     */
+    private void searchHelpArticlesPage(Stage stage) {
+    	//Create new grid to hold article page information
+    	GridPane grid = new GridPane();
+        grid.setStyle("-fx-background-color: #C85A5A;");
+        grid.setPadding(new Insets(10, 10, 10, 10));  // Set padding for the grid
+        grid.setVgap(10);  // Set vertical gap between rows
+        grid.setHgap(10);  // Set horizontal gap between columns
+        
+        //Label that explains what the page does
+        Label explanationL = new Label("Enter in Search Query. Possible Results Showed on Left. Full Search Shown on Right");
+        grid.add(explanationL, 0, 0);
+        
+        //Text area that will display the results of user searches
+        TextArea searchResults = new TextArea();
+        searchResults.setEditable(false);
+        grid.add(searchResults, 0, 1);
+        
+        //Text area that will display full details of articles users choose to display
+        TextArea fullSearch = new TextArea();
+        fullSearch.setEditable(false);
+        grid.add(fullSearch,1,1);
+        
+        //Explain how to use comboboxes and text field for proper searching
+        Label explanationTwoL = new Label("Use Combobox to Select Article Experience Level / Group. Use Textfield for Search Query");
+        grid.add(explanationTwoL, 0, 2);
+        
+        // Create a ComboBox for selecting content level
+        ComboBox<String> levelComboBox = new ComboBox<>();
+        
+        // Add all the level options to the ComboBox
+        levelComboBox.getItems().addAll("all", "beginner", "intermediate", "advanced", "expert");
+
+        // Set the default selected value to "all"
+        levelComboBox.setValue("all");
+        
+        grid.add(levelComboBox, 0, 3);
+        
+        // Create a ComboBox for selecting groups
+        ComboBox<String> groupComboBox = new ComboBox<>();
+        grid.add(groupComboBox, 0, 4);
+        // Populate the ComboBox with group names (you may need to retrieve these from the database)
+        try {
+			List<String> groups = databaseHelper.getAllGroups();
+			groupComboBox.getItems().clear();
+			groupComboBox.getItems().add("");
+			//Add groups to combobox
+			groupComboBox.getItems().addAll(groups);
+			
+		} catch (SQLException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+        
+        //Field that allows users to type in search queries
+        TextField searchQ = new TextField("");
+        grid.add(searchQ, 0, 5);
+        
+        //Button that allows students to search for articles
+        Button submitB = new Button("Search");
+        submitB.setStyle("-fx-background-color: #FFD700;");
+        grid.add(submitB, 0, 6);
+        
+        //Button that clears the article search results
+        Button clearB = new Button("Clear Search");
+        clearB.setStyle("-fx-background-color: #FFD700;");
+        grid.add(clearB, 0, 7);
+        
+        //Explain how to display full article details
+        Label displayR = new Label("Display Results by Typing in Sequence Number Below!");
+        grid.add(displayR, 0, 8);
+        
+        //Collect user input to see which article should be displayed
+        TextField displaySN = new TextField();
+        grid.add(displaySN, 0, 9);
+        
+        //Button that displays results of full article details
+        Button displayB = new Button("Display Results");
+        grid.add(displayB, 0, 10);
+        displayB.setStyle("-fx-background-color: #FFD700;");
+        
+        //Return back to instructor/student home
+        Button backB = new Button("Home");
+        backB.setStyle("-fx-background-color: #FFD700;");
+        grid.add(backB,0,12);
+  
+        if (currentUser.getRoles().get(0).equals("Student")){
+        	backB.setOnAction(e -> studentRoleHomePage(stage, "Student"));
+        }else {
+        	backB.setOnAction(e -> instructorRoleHomePage(stage, "Instructor"));
+        }
+        //Button to clear full search article details
+        Button clearFullSearch = new Button("Clear Article Details");
+        clearFullSearch.setStyle("-fx-background-color: #FFD700;");
+        grid.add(clearFullSearch, 0, 11);
+        
+        submitB.setOnAction(e -> {
+        	//Collect user information
+        	String level = levelComboBox.getValue();
+        	String query = searchQ.getText();
+        	String group = groupComboBox.getValue();
+        	
+        	databaseHelper.saveSearchQuery(currentUser.getUsername(), level, query, group);
+        	
+        	//Used for sequence num
+        	int n = 1;
+        	String header = "";
+        	//Article list to be displayed later on
+        	List<Article> displayArticles = new ArrayList<>();
+        	//Group is not empty check
+        	if (!group.equals("")) {
+        		try {
+        			//Return all articles in the group selected by the user
+					List<Article> articles = databaseHelper.getArticlesByGroup(group);
+					for (Article article: articles) {
+						//Initially, clear all sequence numbers
+						article.setSNum(0);
+					}
+					//Check if content level is beginner
+					if (level.equals("beginner")) {
+						for (Article article: articles) {
+							//Add articles with beginner header
+							header = new String(article.getHeader());
+							if (header.equals("beginner")) {
+								displayArticles.add(article);
+							}
+						}
+					//Check if content level is intermediate
+					}else if (level.equals("intermediate")) {
+						for (Article article: articles) {
+							//Add articles with intermediate header
+							header = new String(article.getHeader());
+							if (header.equals("intermediate")) {
+								displayArticles.add(article);
+							}
+						}
+					//Check if content level is advanced
+					}else if (level.equals("advanced")) {
+						for (Article article: articles) {
+							//Add articles with advanced header
+							header = new String(article.getHeader());
+							if (header.equals("advanced")) {
+								displayArticles.add(article);
+							}
+						}
+					//Check if content level is expert
+					}else if (level.equals("expert")) {
+						for (Article article: articles) {
+							//Add articles with expert header
+							header = new String(article.getHeader());
+							if (header.equals("expert")) {
+								displayArticles.add(article);
+							}
+						}
+					//Content level was "all"
+					}else {
+						//Add all articles since no filter applied
+						for (Article article: articles) {
+							displayArticles.add(article);
+						}
+					}
+				} catch (SQLException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+        	//Group was empty so none selected
+        	}else if (group.equals("")) {
+        		try {
+        			//Return all articles regardless of group
+					List<Article> articles = databaseHelper.returnArticles();
+					for (Article article: articles) {
+						article.setSNum(0);
+					}
+					//Check for beginner header
+					if (level.equals("beginner")) {
+						for (Article article: articles) {
+							header = new String(article.getHeader());
+							//Add articles with proper header (beginner)
+							if (header.equals("beginner")) {
+								displayArticles.add(article);
+							}
+						}
+					//Check for intermediate header
+					}else if (level.equals("intermediate")) {
+						for (Article article: articles) {
+							//Add article with intermediate header
+							header = new String(article.getHeader());
+							if (header.equals("intermediate")) {
+								displayArticles.add(article);
+							}
+						}
+					//Check for advanced header
+					}else if (level.equals("advanced")) {
+						for (Article article: articles) {
+							//Add articles with advanced header
+							header = new String(article.getHeader());
+							if (header.equals("advanced")) {
+								displayArticles.add(article);
+							}
+						}
+					//Check for expert header
+					}else if (level.equals("expert")) {
+						for (Article article: articles) {
+							//Add article with expert header
+							header = new String(article.getHeader());
+							if (header.equals("expert")) {
+								displayArticles.add(article);
+							}
+						}
+					//No content filter so add articles
+					}else {
+						for (Article article: articles) {
+							displayArticles.add(article);
+						}
+					}
+				} catch (SQLException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+        	}
+        	
+        	//There is a search query
+        	if (!query.equals("")) {
+        		//New list to hold search term articles
+        		List<Article> searchTermArticles = new ArrayList<>();
+        		//Count articles
+        		int articleCount = 0;
+        		for (Article article: displayArticles) {
+        			//Gather article values
+        			String title = new String(article.getTitle());
+        			String author = new String(article.getAuthor());
+        			String shortDescription = new String(article.getShortDescription());
+        			String id = String.valueOf(article.getID());
+        			//Check for matching query
+        			if (title.equals(query) || author.equals(query) || shortDescription.equals(query) || id.equals(query)) {
+        				searchTermArticles.add(article);
+        				//Increment article count
+        				articleCount++;
+        			}
+        		}
+        		
+        		//No group selected
+        		if (group.equals("")) {
+        			group = "No Group Currently";
+        		}
+        		
+        		//Append search results with number of articles found and the group
+        		searchResults.appendText("Number of Articles: " + articleCount + "\n" 
+        				+ "Current Group: " + group + "\n");
+        		
+        		for (Article article: searchTermArticles) {
+        			//Get article values
+        			String title = new String(article.getTitle());
+        			String author = new String(article.getAuthor());
+        			String shortDescription = new String(article.getShortDescription());
+        			searchResults.appendText(n + ": " + "\n" 
+        					+ "Title: " +  title + "\n" 
+        					+ "Authpr: " + author + "\n" 
+        					+ "Abstract: " + shortDescription + "\n");
+        			//Set sequence number
+        			article.setSNum(n);
+        			//Increment sequence number
+        			n++;
+        		}
+        		
+        		displayB.setOnAction(e2 -> {
+        			//Gather user sequence number value
+                	String sequenceNum = displaySN.getText();
+                	Article toDisplay = null;
+                	//Gather the int version of the value                	
+                	int number = Integer.parseInt(sequenceNum);
+                	for (Article article: searchTermArticles) {
+                		//Check for matching sequence number
+                		if (number == article.getSNum()) {
+                			//Use the article
+                			toDisplay = article;
+                			String sensTitle = new String(toDisplay.getSensitiveTitle());
+                			//Check for proper access for decryption access
+                			if (databaseHelper.hasAccess(currentUser.getUsername(), article.getTitle()) 
+                					&& sensTitle.equals("Sensitive")) {
+                				String body = new String(article.getBody());
+                				try {
+                					//Get the decrypted body with encryption helper
+									char[] decryptedBody = EncryptionUtils.toCharArray(
+											//Decode body
+											encryptionHelper.decrypt(
+													Base64.getDecoder().decode(
+															body
+													), 
+													EncryptionUtils.getInitializationVector(ivVal.toCharArray())
+											)	
+									);
+									
+									//Display articles with decrypted body since user has access
+	                    			fullSearch.appendText("ID: " + toDisplay.getID() + "\n");
+	                            	fullSearch.appendText("Header: " + new String(toDisplay.getHeader()) + "\n");
+	                            	fullSearch.appendText("Group: " + new String(toDisplay.getGroup()) + "\n");
+	                            	fullSearch.appendText("Title: " + new String(toDisplay.getTitle()) + "\n");
+	                            	fullSearch.appendText("Description: " + new String(toDisplay.getShortDescription()) + "\n");
+	                            	fullSearch.appendText("Keywords: " + new String(toDisplay.getKeywords()) + "\n");
+	                            	fullSearch.appendText("Body: " + new String(decryptedBody) + "\n");
+	                            	fullSearch.appendText("References: " + new String(toDisplay.getReferences()) + "\n");
+	                            	fullSearch.appendText("Sensitive Title: " + new String(toDisplay.getSensitiveTitle()) + "\n");
+	                            	fullSearch.appendText("Author: " + new String(toDisplay.getAuthor()) + "\n");
+	                            	fullSearch.appendText("--------------------------------------------------\n"); // Separator
+									
+								} catch (Exception e1) {
+									// TODO Auto-generated catch block
+									e1.printStackTrace();
+								}
+                			}else {
+                				System.out.println("here");
+                				//User doesn't have access so show encrypted body
+                				fullSearch.appendText("ID: " + toDisplay.getID() + "\n");
+                				fullSearch.appendText("Header: " + new String(toDisplay.getHeader()) + "\n");
+                				fullSearch.appendText("Group: " + new String(toDisplay.getGroup()) + "\n");
+                				fullSearch.appendText("Title: " + new String(toDisplay.getTitle()) + "\n");
+                				fullSearch.appendText("Description: " + new String(toDisplay.getShortDescription()) + "\n");
+                				fullSearch.appendText("Keywords: " + new String(toDisplay.getKeywords()) + "\n");
+                				fullSearch.appendText("Body: " + new String(toDisplay.getBody()) + "\n");
+                				fullSearch.appendText("References: " + new String(toDisplay.getReferences()) + "\n");
+                				fullSearch.appendText("Sensitive Title: " + new String(toDisplay.getSensitiveTitle()) + "\n");
+                				fullSearch.appendText("Author: " + new String(toDisplay.getAuthor()) + "\n");
+                				fullSearch.appendText("--------------------------------------------------\n"); // Separator
+                			}
+                		}
+                	}
+                });
+        	}
+        	
+        	//Query is empty
+        	if (query.equals("")) {
+        		int articleCount = 0;
+        		for (Article article: displayArticles) {
+        			//Count the articles
+        			articleCount++;
+        		}
+        		
+        		//See if there is no group
+        		if (group.equals("")) {
+        			//Update group value for displaying
+        			group = "No Group Currently";
+        		}
+        		
+        		//Append to top of search results the number of articles and current group
+        		searchResults.appendText("Number of Articles: " + articleCount + "\n" 
+        				+ "Current Group: " + group + "\n");
+        		
+        		for (Article article: displayArticles) {
+        			//Get article values
+        			String title = new String(article.getTitle());
+        			String author = new String(article.getAuthor());
+        			String shortDescription = new String(article.getShortDescription());
+        			//Append the article short form results
+        			searchResults.appendText(n + ": " + "\n" 
+        					+ "Title: " +  title + "\n" 
+        					+ "Author: " + author + "\n" 
+        					+ "Abstract: " + shortDescription + "\n");
+        			//Set sequence number
+        			article.setSNum(n);
+        			//Increment sequence number
+        			n++;
+        		}
+        	}
+        	
+        	displayB.setOnAction(e2 -> {
+        		//Gather sequence number
+            	String sequenceNum = displaySN.getText();
+            	Article toDisplay = null;
+            	//Turn value to an integer
+            	int number = Integer.parseInt(sequenceNum);
+            	for (Article article: displayArticles) {
+            		if (number == article.getSNum()) {
+            			//Get the article
+            			toDisplay = article;
+            			String sensTitle = new String(toDisplay.getSensitiveTitle());
+            			//Check for proper access
+            			if (databaseHelper.hasAccess(currentUser.getUsername(), article.getTitle()) 
+            					&& sensTitle.equals("Sensitive")) {
+            				String body = new String(article.getBody());
+            				try {
+            					//Decrypt the body
+								char[] decryptedBody = EncryptionUtils.toCharArray(
+										//Decode body
+										encryptionHelper.decrypt(
+												Base64.getDecoder().decode(
+														body
+												), 
+												EncryptionUtils.getInitializationVector(ivVal.toCharArray())
+										)	
+								);
+								
+								//Append results with article with decrypted body
+                    			fullSearch.appendText("ID: " + toDisplay.getID() + "\n");
+                            	fullSearch.appendText("Header: " + new String(toDisplay.getHeader()) + "\n");
+                            	fullSearch.appendText("Group: " + new String(toDisplay.getGroup()) + "\n");
+                            	fullSearch.appendText("Title: " + new String(toDisplay.getTitle()) + "\n");
+                            	fullSearch.appendText("Description: " + new String(toDisplay.getShortDescription()) + "\n");
+                            	fullSearch.appendText("Keywords: " + new String(toDisplay.getKeywords()) + "\n");
+                            	fullSearch.appendText("Body: " + new String(decryptedBody) + "\n");
+                            	fullSearch.appendText("References: " + new String(toDisplay.getReferences()) + "\n");
+                            	fullSearch.appendText("Sensitive Title: " + new String(toDisplay.getSensitiveTitle()) + "\n");
+                            	fullSearch.appendText("Author: " + new String(toDisplay.getAuthor()) + "\n");
+                            	fullSearch.appendText("--------------------------------------------------\n"); // Separator
+								
+							} catch (Exception e1) {
+								// TODO Auto-generated catch block
+								e1.printStackTrace();
+							}
+            			}else {
+            				//User doesn't have proper access so show encrypted body or general article body
+            				fullSearch.appendText("ID: " + toDisplay.getID() + "\n");
+            				fullSearch.appendText("Header: " + new String(toDisplay.getHeader()) + "\n");
+            				fullSearch.appendText("Group: " + new String(toDisplay.getGroup()) + "\n");
+            				fullSearch.appendText("Title: " + new String(toDisplay.getTitle()) + "\n");
+            				fullSearch.appendText("Description: " + new String(toDisplay.getShortDescription()) + "\n");
+            				fullSearch.appendText("Keywords: " + new String(toDisplay.getKeywords()) + "\n");
+            				fullSearch.appendText("Body: " + new String(toDisplay.getBody()) + "\n");
+            				fullSearch.appendText("References: " + new String(toDisplay.getReferences()) + "\n");
+            				fullSearch.appendText("Sensitive Title: " + new String(toDisplay.getSensitiveTitle()) + "\n");
+            				fullSearch.appendText("Author: " + new String(toDisplay.getAuthor()) + "\n");
+            				fullSearch.appendText("--------------------------------------------------\n"); // Separator
+            			}
+            		}
+            	}
+            });
+        	
+        });
+        
+        //Clear search results
+        clearB.setOnAction(e -> {
+        	searchResults.clear();
+        	
+        });
+        
+        //Clear full search
+        clearFullSearch.setOnAction(e -> {
+        	fullSearch.clear();
+        	
+        });
+        
+        Scene scene = new Scene(grid, 1000, 600);
+        stage.setScene(scene);
+        stage.show();
+    }
+    
+    /**
+     * Screen that shows generic messages students can send and specific messages users can 
+     * create
+     * @param stage
+     */
+    private void messageScreen(Stage stage) {
+    	// UI Elements
+        Label usernameLabel = new Label("Username:");
+        TextField usernameField = new TextField();
+
+        Label specificMessageLabel = new Label("Specific Message:");
+        TextArea specificMessageArea = new TextArea();
+
+        Label genericMessageLabel = new Label("Generic Message:");
+        ComboBox<String> genericMessageBox = new ComboBox<>();
+        //Generic message values
+        genericMessageBox.getItems().addAll(
+                "I am confused about how to use this tool.",
+                "I can't find the help I need.",
+                "I'm having trouble with article permissions."
+        );
+
+        Button sendButton = new Button("Send Message");
+        Button back = new Button("Back to Home");
+        sendButton.setStyle("-fx-background-color: #FFD700;");
+       
+        // Send button action
+        sendButton.setOnAction(event -> {
+        	//Gather the specific message values
+            String username = usernameField.getText();
+            String message = specificMessageArea.getText().isEmpty() 
+                             ? genericMessageBox.getValue() 
+                             : specificMessageArea.getText();
+            if (username.isEmpty() || message == null || message.isEmpty()) {
+                showAlert("Error", "Please enter a username and a message.");
+                return;
+            }
+
+            // Save to database
+            databaseHelper.saveMessage(username, message);
+        });
+        
+        back.setStyle("-fx-background-color: #FFD700;");
+        back.setOnAction(e -> studentRoleHomePage(stage, "Student"));
+        
+        // Layout
+        VBox root = new VBox(10, usernameLabel, usernameField, specificMessageLabel, specificMessageArea, 
+                             genericMessageLabel, genericMessageBox, sendButton, back);
+        root.setPadding(new Insets(10));
+        root.setStyle("-fx-background-color: #C85A5A;");
+        stage.setTitle("Student Message Screen");
+        stage.setScene(new Scene(root, 400, 400));
         stage.show();
     }
     
@@ -428,19 +979,80 @@ public class HelpSystemUI extends Application {
         col1.setPercentWidth(100);
         grid.getColumnConstraints().add(col1);
        //Title of the page to let user know where they are at
-        Label homePageLabel = new Label(role + " Home Page");
+        Label homePageLabel = new Label(role + " Home Page" + "       "  + "Hello " + currentUser.getUsername());
         homePageLabel.setFont(Font.font("System", FontWeight.BOLD, 16)); // Set font to bold and size
         grid.add(homePageLabel, 0, 0);
         
-     // Help Articles button
+        // Help Articles button
         Button helpArticlesButton = new Button("Help Articles");
         helpArticlesButton.setStyle("-fx-background-color: #FFD700;");
         helpArticlesButton.setOnAction(e -> helpArticlesPage(stage));
         grid.add(helpArticlesButton, 0, 1);
+        
+        //Text result text area
+        TextArea textAreaResult = new TextArea();
+        grid.add(textAreaResult, 0, 4);
+        
+        //List all button
+        Button listAll = new Button("List Messages");
+        listAll.setStyle("-fx-background-color: #FFD700;");
+        grid.add(listAll, 0, 5);
+        
+        // Help Articles Access button
+        Button helpArticlesAccessButton = new Button("Help Article Access Management");
+        helpArticlesAccessButton.setStyle("-fx-background-color: #FFD700;");
+        helpArticlesAccessButton.setOnAction(e -> helpArticlesAccessPage(stage));
+        grid.add(helpArticlesAccessButton, 0, 2);
+        
+        listAll.setOnAction(e -> {
+        	List<Message> messages = null;
+			//Gather articles to display to user
+			messages = databaseHelper.getAllMessages();
+			textAreaResult.clear();
+			//For each article gathered (all articles), display the information accordingly
+        	for (Message message: messages) {
+        		textAreaResult.appendText(message.toString());
+                textAreaResult.appendText("--------------------------------------------------\n"); // Separator
+        	}
+        });
+        
+      //Text result text area
+        TextArea textAreaQuery = new TextArea();
+        grid.add(textAreaQuery, 0, 6);
+        
+        //List all button
+        Button listAllQuery = new Button("List Queries");
+        listAllQuery.setStyle("-fx-background-color: #FFD700;");
+        grid.add(listAllQuery, 0, 7);
+        
+        listAllQuery.setOnAction(e -> {
+        	List<Search> searches = null;
+			//Gather articles to display to user
+			searches = databaseHelper.getAllSearchQueries();
+			textAreaResult.clear();
+			//For each article gathered (all articles), display the information accordingly
+        	for (Search search: searches) {
+        		textAreaQuery.appendText(search.toString());
+                textAreaQuery.appendText("--------------------------------------------------\n"); // Separator
+        	}
+        });
+        
+        // Help Articles Access button
+        Button viewAccessButton = new Button("View Access");
+        viewAccessButton.setStyle("-fx-background-color: #FFD700;");
+        viewAccessButton.setOnAction(e -> viewAccessPage(stage));
+        grid.add(viewAccessButton, 0, 3);
+       
+       
+        Button searchArticlesB = new Button("Search for Help Articles");
+        searchArticlesB.setStyle("-fx-background-color: #FFD700;");
+        grid.add(searchArticlesB, 0, 8);
+        searchArticlesB.setOnAction(e -> searchHelpArticlesPage(stage));
+        
         //Button that will allow user to sign out of application
         Button logoutButton = new Button("Log Out");
         logoutButton.setStyle("-fx-background-color: #FFD700;");
-        grid.add(logoutButton, 0, 2);
+        grid.add(logoutButton, 0, 9);
         //Action event handling that brings user back to login screen from the start
         logoutButton.setOnAction(e -> showLoginScreen(stage));
         Scene scene = new Scene(grid, 400, 600);
@@ -499,13 +1111,27 @@ public class HelpSystemUI extends Application {
         // Help Articles button
         Button helpArticlesButton = new Button("Help Articles");
         helpArticlesButton.setStyle("-fx-background-color: #FFD700;");
-        helpArticlesButton.setOnAction(e -> helpArticlesPage(stage));
+        helpArticlesButton.setOnAction(e -> helpArticlesPageAdmin(stage));
         grid.add(helpArticlesButton, 0, 6);
+        
+        // Help Articles Access button
+        Button viewAccessButton = new Button("View Access");
+        viewAccessButton.setStyle("-fx-background-color: #FFD700;");
+        viewAccessButton.setOnAction(e -> viewAccessPage(stage));
+        grid.add(viewAccessButton, 0, 7);
+        
+        // Help Articles Access button
+        Button helpArticlesAccessButton = new Button("Help Article Access Management");
+        helpArticlesAccessButton.setStyle("-fx-background-color: #FFD700;");
+        helpArticlesAccessButton.setOnAction(e -> helpArticlesAccessPage(stage));
+        grid.add(helpArticlesAccessButton, 0, 8);
+        
+        
         // Button to log out
         Button logoutButton = new Button("Logout");
         logoutButton.setStyle("-fx-background-color: #FFD700;");
         logoutButton.setOnAction(e -> showLoginScreen(stage));
-        grid.add(logoutButton, 0, 7);
+        grid.add(logoutButton, 0, 9);
         // Adjust the layout
         Scene scene = new Scene(grid, 400, 400);
         stage.setScene(scene);
@@ -583,11 +1209,11 @@ public class HelpSystemUI extends Application {
         grid.add(restoreArticleButton, 0, 6);
         
         // Back button to return to the admin home page
-        Button backButton = new Button("Back to Admin Home");
+        Button backButton = new Button("Back to Home");
         backButton.setStyle("-fx-background-color: #FFD700;");
         backButton.setOnAction(e -> {
             helpStage.close();
-            adminRoleHomePage(stage, "Admin");
+            instructorRoleHomePage(stage, "Instructor");
         });
         grid.add(backButton, 0, 7);
  
@@ -595,6 +1221,347 @@ public class HelpSystemUI extends Application {
         Scene scene = new Scene(grid, 450, 300);
         helpStage.setScene(scene);
         helpStage.initModality(Modality.APPLICATION_MODAL);  // Block interaction with other windows until closed
+        helpStage.show();
+    }
+    
+    /**
+     * Page that houses all options for admins to create, update,
+     * restore, and backup articles
+     * @param stage
+     */
+    private void helpArticlesPageAdmin(Stage stage) {
+    	// Set up the new window
+        Stage helpStage = new Stage();
+        helpStage.setTitle("Help Article Management");
+        
+        //Set up the grid to house article information options
+        GridPane grid = new GridPane();
+        grid.setStyle("-fx-background-color: #C85A5A;");
+        grid.setPadding(new Insets(10, 10, 10, 10));
+        grid.setVgap(10);
+        grid.setHgap(10);
+        // Button to create a new help article
+        Button createArticleButton = new Button("Create Help Article");
+        createArticleButton.setStyle("-fx-background-color: #FFD700;");
+        createArticleButton.setOnAction(e -> createHelpArticle(helpStage));
+        grid.add(createArticleButton, 0, 0);
+       
+        // Button to delete a help article
+        Button deleteArticleButton = new Button("Delete Help Article");
+        deleteArticleButton.setStyle("-fx-background-color: #FFD700;");
+        deleteArticleButton.setOnAction(e -> {
+			try {
+				deleteHelpArticle(helpStage);
+			} catch (SQLException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+		});
+        
+        //Add button to delete articles
+        grid.add(deleteArticleButton, 0, 1);
+        
+        Button backupArticleButton = new Button("Backup Help Article Group");
+        backupArticleButton.setStyle("-fx-background-color: #FFD700;");
+        backupArticleButton.setOnAction(e -> backupHelpArticle(helpStage));
+        grid.add(backupArticleButton, 0, 2);
+        
+        Button backupAllArticleButton = new Button("Backup All Help Articles");
+        backupAllArticleButton.setStyle("-fx-background-color: #FFD700;");
+        backupAllArticleButton.setOnAction(e -> backupAllArticles(helpStage));
+        grid.add(backupAllArticleButton, 0, 3);
+        
+        Button restoreArticleButton = new Button("Restore Help Articles");
+        restoreArticleButton.setStyle("-fx-background-color: #FFD700;");
+        restoreArticleButton.setOnAction(e -> restoreHelpArticle(helpStage));
+        grid.add(restoreArticleButton, 0, 4);
+        
+        Button listArticlesButton = new Button("List Help Articles");
+        listArticlesButton.setStyle("-fx-background-color: #FFD700;");
+        listArticlesButton.setOnAction(e -> {
+			try {
+				listHelpArticles(helpStage);
+			} catch (Exception e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+		});
+        
+        //Add article lister to screen
+        grid.add(listArticlesButton, 0, 5);
+        
+        // Back button to return to the admin home page
+        Button backButton = new Button("Back to Admin Home");
+        backButton.setStyle("-fx-background-color: #FFD700;");
+        backButton.setOnAction(e -> {
+            helpStage.close();
+            adminRoleHomePage(stage, "Admin");
+        });
+        grid.add(backButton, 0, 6);
+ 
+        // Scene and stage setup
+        Scene scene = new Scene(grid, 450, 300);
+        helpStage.setScene(scene);
+        helpStage.initModality(Modality.APPLICATION_MODAL);  // Block interaction with other windows until closed
+        helpStage.show();
+    }
+    
+    
+    /**
+     * Page the shows users current access to articles and allows for article access assigning and removing
+     * @param stage
+     */
+    private void helpArticlesAccessPage(Stage stage) {
+    	// Set up the new window
+        Stage helpStage = new Stage();
+        helpStage.setTitle("Help Article Access");
+        
+        //Set up the grid to house article information options
+        GridPane grid = new GridPane();
+        grid.setStyle("-fx-background-color: #C85A5A;");
+        grid.setPadding(new Insets(10, 10, 10, 10));
+        grid.setVgap(10);
+        grid.setHgap(10);
+        
+        //Area to show current users
+        TextArea usersArea = new TextArea();
+        usersArea.setEditable(false);
+        grid.add(usersArea, 0, 1);
+        
+        //Button that shows all users
+        Button listUsers = new Button("List Current Users");
+        listUsers.setStyle("-fx-background-color: #FFD700;");
+        grid.add(listUsers, 0, 0);
+        
+        listUsers.setOnAction(e -> {
+        	//Gather all other users
+        	List<String> userList = databaseHelper.getAllUsersExceptCurrent(currentUser.getUsername());
+        		for (String user: userList) {
+        			//Append to list
+        			usersArea.appendText(user + "\n");
+        }});
+        
+        Label selectGroupLabel = new Label("Select Access Group");  
+      
+        // Create a ComboBox for selecting groups
+        ComboBox<String> groupComboBox = new ComboBox<>();
+        grid.add(selectGroupLabel, 0, 2);
+        grid.add(groupComboBox, 1, 2);
+        // Populate the ComboBox with group names (you may need to retrieve these from the database)
+        try {
+			List<String> groups = databaseHelper.getAllGroups();
+			groupComboBox.getItems().clear();
+			groupComboBox.getItems().add("");
+			//Add groups to combobox
+			groupComboBox.getItems().addAll(groups);
+			
+		} catch (SQLException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+        
+        //Select access level which can be View or Admin
+        Label accessLabel = new Label("Select Access Level");
+        
+        ComboBox<String> accessComboBox = new ComboBox<>();
+        accessComboBox.getItems().add("");
+        accessComboBox.getItems().add("View Articles");
+        accessComboBox.getItems().add("Manage Articles (Admin)");
+        	
+        grid.add(accessLabel, 0, 3);	
+        grid.add(accessComboBox, 0, 4);
+        
+        //Enter in username field
+        TextField username = new TextField("Enter Username for Assigning Access");
+        grid.add(username, 0, 5);
+        
+        //Button to assign user access
+        Button assignUser = new Button("Assign User Access");
+        grid.add(assignUser, 0, 6);
+        assignUser.setStyle("-fx-background-color: #FFD700;");
+        
+        //Button to remove user access
+        Button removeUser = new Button("Remove User Access");
+        grid.add(removeUser, 1, 6);
+        removeUser.setStyle("-fx-background-color: #FFD700;");
+        
+        
+        assignUser.setOnAction(e -> {
+        	try {
+        		//Gather user and access values
+        		  String userName = username.getText();
+        		  String accessType = "";
+        		  //Check which type of access there is
+        	        if (accessComboBox.getValue().equals("View Articles")){
+        	        	accessType = "View";
+        	        }else {
+        	        	accessType = "Admin";
+        	        }
+        	        //Get all current groups
+        	        List<Article> articles = databaseHelper.getArticlesByGroup(groupComboBox.getValue());
+        	        for (Article article: articles) {
+        	        	//Check for admin access
+        	        	String sensTitle = new String(article.getSensitiveTitle());
+        	        	if ((databaseHelper.isInstructorAdmin(currentUser.getUsername(), article.getTitle()) == true)) {
+        	        		//Set flag to true since user has admin access
+        	        		isAdmin = true;
+        	        		System.out.println(isAdmin);
+					}
+				}
+				
+        	    //Check for admin flag
+				if (isAdmin == true) {
+					for (Article article: articles) {
+						//Assign access
+						databaseHelper.assignAccess(userName, article.getTitle(), accessType);
+						//Reset flag
+						isAdmin = false;
+					}
+				}
+				
+			} catch (SQLException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+        });
+        
+        removeUser.setOnAction(e -> {
+        	try {
+        		  //Collect username 
+        		  String userName = username.getText();
+        		  
+        		  //Gather all group articles
+        	      List<Article> articles = databaseHelper.getArticlesByGroup(groupComboBox.getValue());
+        	      for (Article article: articles) {
+        	    	  String sensTitle = new String(article.getSensitiveTitle());
+        	    	    //Check for admin access
+        	        	if ((databaseHelper.isInstructorAdmin(currentUser.getUsername(), article.getTitle()) == true)) {
+        	        		//Set flag to true
+        	        		isAdmin = true;
+        	        		System.out.println(isAdmin);
+					}
+				}
+				
+        	    //Check for admin flag
+				if (isAdmin == true) {
+					for (Article article: articles) {
+						//Assign access since user is admin
+						databaseHelper.removeAccess(userName, article.getTitle());
+						isAdmin = false;
+					}
+				}
+				
+			} catch (SQLException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+        });
+        
+        // Scene and stage setup
+        Scene scene = new Scene(grid, 800, 400);
+        helpStage.setScene(scene);
+        helpStage.show();
+        
+    }
+    
+    /**
+     * Page to view the access that users currently have for different articles
+     * @param stage
+     */
+    private void viewAccessPage(Stage stage) {
+    	// Set up the new window
+        Stage helpStage = new Stage();
+        helpStage.setTitle("View/Edit Access");
+        
+        //Set up the grid to house article information options
+        GridPane grid = new GridPane();
+        grid.setStyle("-fx-background-color: #C85A5A;");
+        grid.setPadding(new Insets(10, 10, 10, 10));
+        grid.setVgap(10);
+        grid.setHgap(10);
+        
+        //Text area to hold the users
+        TextArea usersArea = new TextArea();
+        usersArea.setEditable(false);
+        grid.add(usersArea, 0, 1);
+        
+        //List all users on action when pressed
+        Button listUsers = new Button("List Current Users");
+        listUsers.setStyle("-fx-background-color: #FFD700;");
+        grid.add(listUsers, 0, 0);
+        
+        Label selectGroupLabel = new Label("Select Access Group");  
+        
+        Button clearB = new Button("Clear searches");
+        clearB.setStyle("-fx-background-color: #FFD700;");
+        grid.add(clearB, 0, 3);
+        
+        clearB.setOnAction(e -> {
+        	usersArea.clear();
+        });
+        
+        // Create a ComboBox for selecting groups
+        ComboBox<String> groupComboBox = new ComboBox<>();
+        grid.add(selectGroupLabel, 0, 2);
+        grid.add(groupComboBox, 1, 2);
+        // Populate the ComboBox with group names (you may need to retrieve these from the database)
+        try {
+			List<String> groups = databaseHelper.getAllGroups();
+			groupComboBox.getItems().clear();
+			groupComboBox.getItems().add("");
+			//Add groups to combobox
+			groupComboBox.getItems().addAll(groups);
+			
+		} catch (SQLException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+        
+        listUsers.setOnAction(e -> {
+        	try {
+        		//Check for general article flag
+        		boolean isGeneral = false;
+				List<Article> articles = databaseHelper.getArticlesByGroup(groupComboBox.getValue());
+				for (Article article: articles) {
+					//See if article is general
+					if (article.getSensitiveTitle().equals("General")) {
+						//Update flag accordingly
+						isGeneral = true;
+					}
+				}
+				
+				//isGeneral flag was true
+				if (isGeneral == true) {
+					List<String> users = databaseHelper.getAllUsersExceptCurrent(currentUser.getUsername());
+					for (String user: users) {
+						//Append users (all since its general) for access
+						usersArea.appendText(user + "\n");
+						isGeneral = false;
+					}
+					//Update flag
+					isGeneral = false;
+				}else {
+					//Flag not general
+					Set<String> uniqueUsers = new HashSet<>();
+					List<String> users = databaseHelper.getAllUsers();
+					for (String user: users) {
+						for (Article article: articles) {
+							//Check for proper access
+							if (databaseHelper.hasAccess(user, article.getTitle()) && uniqueUsers.add(user)) {
+								//Append users with the proper access
+								usersArea.appendText(user + "\n");
+							}
+						}
+					}
+				}
+			} catch (SQLException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+        });
+        // Scene and stage setup
+        Scene scene = new Scene(grid, 800, 400);
+        helpStage.setScene(scene);
         helpStage.show();
     }
     
@@ -667,19 +1634,20 @@ public class HelpSystemUI extends Application {
         grid.add(sensitiveTitleLabel, 0, 7);
         grid.add(sensitiveTitleField, 1, 7);
         // Sensitive Description field
-        Label sensitiveDescriptionLabel = new Label("Sensitive Description (if any):");
-        TextArea sensitiveDescriptionField = new TextArea();
-        sensitiveDescriptionField.setPromptText("Enter a sensitive-free description");
-        sensitiveDescriptionField.setWrapText(true);
-        sensitiveDescriptionField.setPrefRowCount(2);
-        grid.add(sensitiveDescriptionLabel, 0, 8);
-        grid.add(sensitiveDescriptionField, 1, 8);
+        Label authorLabel = new Label("Author:");
+        TextArea authorField = new TextArea();
+        authorField.setPromptText("Enter an author name");
+        authorField.setWrapText(true);
+        authorField.setPrefRowCount(2);
+        grid.add(authorLabel, 0, 8);
+        grid.add(authorField, 1, 8);
         // Save button
         Button saveButton = new Button("Save Article");
         saveButton.setStyle("-fx-background-color: #FFD700;");
         saveButton.setOnAction(e -> {
         	// Generate a unique long integer identifier for the article ID
     	    int id = (int) (System.currentTimeMillis() + (int)(Math.random() * 10000));
+    	    System.out.println(id);
             String header = headerField.getText();
             String group = groupField.getText();  // Capture the group field
             String title = titleField.getText();
@@ -688,7 +1656,7 @@ public class HelpSystemUI extends Application {
             String body = bodyField.getText();
             String references = referencesField.getText();
             String sensitiveTitle = sensitiveTitleField.getText();
-            String sensitiveDescription = sensitiveDescriptionField.getText();
+            String author = authorField.getText();
             // Create Article object and call addArticle to save
             Article article = new Article(
             	id,
@@ -700,20 +1668,43 @@ public class HelpSystemUI extends Application {
                 body.toCharArray(),
                 references.toCharArray(),
                 sensitiveTitle.toCharArray(),
-                sensitiveDescription.toCharArray()
+                author.toCharArray(),
+                0
             );
             
             //After gathering article information, attempt to add the article in a try/catch block
             try {
             	//Add the article using databaseHelper
-                databaseHelper.addArticle(article);
-                Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                //Show success message if it was added to database successfully
-                alert.setTitle("Success");
-                alert.setHeaderText(null);
-                alert.setContentText("Article saved successfully!");
+            	if (sensitiveTitle.equals("Sensitive")) {
+            		databaseHelper.addArticleEncrypted(article);
+            		Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            		alert.setTitle("Success");
+                    alert.setHeaderText(null);
+                    alert.setContentText("Encrypted Article saved successfully!");
+                    databaseHelper.assignAccess(currentUser.getUsername(), article.getTitle(), "Admin");
+                    //First admin has full access to every article
+                    databaseHelper.assignAccess(admin.getUsername(), article.getTitle(), "Admin");
+                    alert.showAndWait();
+                    createArticleStage.close();  // Close the form after saving
+            	}else {
+            		databaseHelper.addArticle(article);
+            		databaseHelper.assignAccess(admin.getUsername(), article.getTitle(), "Admin");
+            		Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            		//Show success message if it was added to database successfully
+            		alert.setTitle("Success");
+            		alert.setHeaderText(null);
+            		alert.setContentText("Article saved successfully!");
+            		System.out.println(article.getTitle());
+            		databaseHelper.assignAccess(currentUser.getUsername(), article.getTitle(), "Admin");
+            		if (sensitiveTitle.equals("General")) {
+            			List<String> users = databaseHelper.getAllUsersExceptCurrent(currentUser.getUsername());
+            			for (String user: users) {
+            				databaseHelper.assignAccess(user, article.getTitle(), "View");
+            			}
+            		}
                 alert.showAndWait();
                 createArticleStage.close();  // Close the form after saving
+            	}
             } catch (Exception ex) {
             	//Else, let user know the process failed
                 Alert alert = new Alert(Alert.AlertType.ERROR);
@@ -722,6 +1713,7 @@ public class HelpSystemUI extends Application {
                 alert.setContentText("Error: " + ex.getMessage());
                 alert.showAndWait();
             }
+            
         });
         
         //Add save button to screen
@@ -794,22 +1786,45 @@ public class HelpSystemUI extends Application {
         	//Gather group value from combobox
             String selectedGroup = articleComboBoxGroup.getValue();
             if (selectedGroup != null && !selectedGroup.isEmpty()) {
-                try {
-                	//Group wasn't null so attempt to delete the group of articles
-                    databaseHelper.deleteArticlesByGroup(selectedGroup); // Deletes articles by group
-                    Alert alert = new Alert(Alert.AlertType.INFORMATION, "All articles in the group '" + selectedGroup + "' have been deleted.");
-                    alert.showAndWait();
-                    articleComboBoxGroup.getItems().remove(selectedGroup); // Update ComboBox to remove deleted group
-                } catch (SQLException ex) {
-                	//Group deletion not successful
-                    Alert alert = new Alert(Alert.AlertType.ERROR, "Error deleting articles in group: " + ex.getMessage());
-                    alert.showAndWait();
-                }
-            } else {
-            	//no options were selected so let user know
-                Alert alert = new Alert(Alert.AlertType.WARNING, "Please select a group to delete.");
-                alert.showAndWait();
-            }
+            	List<Article> possibleDelete = null;
+				try {
+					possibleDelete = databaseHelper.getArticlesByGroup(articleComboBoxGroup.getValue());
+				} catch (SQLException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+    	        for (Article article: possibleDelete) {
+    	        	if (databaseHelper.isInstructorAdmin(currentUser.getUsername(), article.getTitle()) == true) {
+    	        		isAdmin = true;
+    	        		System.out.println(isAdmin);
+				}
+    	        	String gen = new String(article.getSensitiveTitle());
+    	        	if (gen.equals("General")) {
+    	        		isGeneral = true;
+    	        		System.out.println("True");
+    	        	}
+			}
+			
+			if (isAdmin == true || isGeneral == true) {
+				 try {
+	                	//Group wasn't null so attempt to delete the group of articles
+	                    databaseHelper.deleteArticlesByGroup(selectedGroup); // Deletes articles by group
+	                    Alert alert = new Alert(Alert.AlertType.INFORMATION, "All articles in the group '" + selectedGroup + "' have been deleted.");
+	                    alert.showAndWait();
+	                    articleComboBoxGroup.getItems().remove(selectedGroup); // Update ComboBox to remove deleted group
+	                } catch (SQLException ex) {
+	                	//Group deletion not successful
+	                    Alert alert = new Alert(Alert.AlertType.ERROR, "Error deleting articles in group: " + ex.getMessage());
+	                    alert.showAndWait();
+	                }
+	            } else {
+	            	//no options were selected so let user know
+	                Alert alert = new Alert(Alert.AlertType.WARNING, "No admin Access.");
+	                alert.showAndWait();
+	            }
+			}
+              isAdmin = false; 
+              isGeneral = false;
         });
         
         //Add delete group button to screen
@@ -892,13 +1907,13 @@ public class HelpSystemUI extends Application {
         grid.add(sensitiveTitleLabel, 0, 7);
         grid.add(sensitiveTitleField, 1, 7);
         // Sensitive Description field
-        Label sensitiveDescriptionLabel = new Label("Sensitive Description (if any):");
-        TextArea sensitiveDescriptionField = new TextArea();
-        sensitiveDescriptionField.setPromptText("Enter a sensitive-free description");
-        sensitiveDescriptionField.setWrapText(true);
-        sensitiveDescriptionField.setPrefRowCount(2);
-        grid.add(sensitiveDescriptionLabel, 0, 8);
-        grid.add(sensitiveDescriptionField, 1, 8);
+        Label authorLabel = new Label("Author):");
+        TextArea authorField = new TextArea();
+        authorField.setPromptText("Enter an author name");
+        authorField.setWrapText(true);
+        authorField.setPrefRowCount(2);
+        grid.add(authorLabel, 0, 8);
+        grid.add(authorField, 1, 8);
         // Save button
         Button saveButton = new Button("Save Article");
         saveButton.setStyle("-fx-background-color: #FFD700;");
@@ -927,7 +1942,7 @@ public class HelpSystemUI extends Application {
                 char[] updatedBody = bodyField.getText().toCharArray();
                 char[] updatedReferences = referencesField.getText().toCharArray();
                 char[] updatedSensitiveTitle = sensitiveTitleField.getText().toCharArray();
-                char[] updatedSensitiveDescription = sensitiveDescriptionField.getText().toCharArray();
+                char[] updatedAuthor = authorField.getText().toCharArray();
                 // Update fields in the Article object
                 articleToUpdate.setHeader(updatedHeader);
                 articleToUpdate.setGroup(updatedGroup);
@@ -937,10 +1952,13 @@ public class HelpSystemUI extends Application {
                 articleToUpdate.setBody(updatedBody);
                 articleToUpdate.setReferences(updatedReferences);
                 articleToUpdate.setSensitiveTitle(updatedSensitiveTitle);
-                articleToUpdate.setSensitiveDescription(updatedSensitiveDescription);
+                articleToUpdate.setAuthor(updatedAuthor);
                 // Perform the update in the database
-                databaseHelper.updateArticle(articleToUpdate); 
-                System.out.println("Article updated successfully.");
+                String sensTitle = new String(articleToUpdate.getSensitiveTitle());
+                if (databaseHelper.isInstructorAdmin(currentUser.getUsername(), articleToUpdate.getTitle())) {
+                	databaseHelper.updateArticle(articleToUpdate); 
+                	System.out.println("Article updated successfully.");
+                }
             } catch (SQLException e1) {
                 System.err.println("Error updating article: " + e1.getMessage());
             }
@@ -1011,20 +2029,110 @@ public class HelpSystemUI extends Application {
 				e1.printStackTrace();
 			}
 			textAreaResult.clear();
+			
+			List<String> roles = currentUser.getRoles();
+    		String adminCheck = roles.get(0);
+    		
+    		if (adminCheck.equals("Admin")) {
+    			//For each article gathered (all articles), display the information accordingly
+            	for (Article article: articles) {
+            		String sensTitle = new String(article.getSensitiveTitle());        		
+            		//Check for admin access
+            		if (sensTitle.equals("Sensitive")) {
+            				Article toDisplay = article;
+    					//Append results with article with decrypted body
+            			textAreaResult.appendText("ID: " + toDisplay.getID() + "\n");
+            			textAreaResult.appendText("Header: " + new String(toDisplay.getHeader()) + "\n");
+            			textAreaResult.appendText("Group: " + new String(toDisplay.getGroup()) + "\n");
+            			textAreaResult.appendText("Title: " + new String(toDisplay.getTitle()) + "\n");
+            			textAreaResult.appendText("Description: " + new String(toDisplay.getShortDescription()) + "\n");
+            			textAreaResult.appendText("Keywords: " + new String(toDisplay.getKeywords()) + "\n");
+            			textAreaResult.appendText("Body: " + new String(toDisplay.getBody()) + "\n");
+            			textAreaResult.appendText("References: " + new String(toDisplay.getReferences()) + "\n");
+            			textAreaResult.appendText("Sensitive Title: " + new String(toDisplay.getSensitiveTitle()) + "\n");
+            			textAreaResult.appendText("Author: " + new String(toDisplay.getAuthor()) + "\n");
+            			textAreaResult.appendText("--------------------------------------------------\n"); // Separator
+            		
+            		}else {
+            			String body = new String(article.getBody());
+            			String encryptedBody = "";
+            			//Encrypt the body using the encryptionHelper
+            			try {
+								encryptedBody = Base64.getEncoder().encodeToString(
+									encryptionHelper.encrypt(body.getBytes(), EncryptionUtils.getInitializationVector(ivVal.toCharArray()))
+							);
+						} catch (Exception e1) {
+							// TODO Auto-generated catch block
+							e1.printStackTrace();
+						}
+            			textAreaResult.appendText("ID: " + article.getID() + "\n");
+            			textAreaResult.appendText("Header: " + new String(article.getHeader()) + "\n");
+            			textAreaResult.appendText("Group: " + new String(article.getGroup()) + "\n");
+            			textAreaResult.appendText("Title: " + new String(article.getTitle()) + "\n");
+            			textAreaResult.appendText("Description: " + new String(article.getShortDescription()) + "\n");
+            			textAreaResult.appendText("Keywords: " + new String(article.getKeywords()) + "\n");
+            			textAreaResult.appendText("Body: " + new String(encryptedBody) + "\n");
+            			textAreaResult.appendText("References: " + new String(article.getReferences()) + "\n");
+            			textAreaResult.appendText("Sensitive Title: " + new String(article.getSensitiveTitle()) + "\n");
+            			textAreaResult.appendText("Author: " + new String(article.getAuthor()) + "\n");
+            			textAreaResult.appendText("--------------------------------------------------\n"); // Separator
+            		}
+            	}
+    		}else {
+    		
 			//For each article gathered (all articles), display the information accordingly
         	for (Article article: articles) {
-        		textAreaResult.appendText("ID: " + article.getID() + "\n");
-        		textAreaResult.appendText("Header: " + new String(article.getHeader()) + "\n");
-                textAreaResult.appendText("Group: " + new String(article.getGroup()) + "\n");
-                textAreaResult.appendText("Title: " + new String(article.getTitle()) + "\n");
-                textAreaResult.appendText("Description: " + new String(article.getShortDescription()) + "\n");
-                textAreaResult.appendText("Keywords: " + new String(article.getKeywords()) + "\n");
-                textAreaResult.appendText("Body: " + new String(article.getBody()) + "\n");
-                textAreaResult.appendText("References: " + new String(article.getReferences()) + "\n");
-                textAreaResult.appendText("Sensitive Title: " + new String(article.getSensitiveTitle()) + "\n");
-                textAreaResult.appendText("Sensitive Description: " + new String(article.getSensitiveDescription()) + "\n");
-                textAreaResult.appendText("--------------------------------------------------\n"); // Separator
+        		String sensTitle = new String(article.getSensitiveTitle());        		
+        		//Check for admin access
+        		if (sensTitle.equals("Sensitive")) {
+        			if (databaseHelper.hasAccess(currentUser.getUsername(), article.getTitle())) {
+        				Article toDisplay = article;
+        					String body = new String(article.getBody());
+        						try {
+        							//Decrypt the body
+        							char[] decryptedBody = EncryptionUtils.toCharArray(
+        									//Decode body
+        									encryptionHelper.decrypt(
+        											Base64.getDecoder().decode(
+											body
+									), 
+									EncryptionUtils.getInitializationVector(ivVal.toCharArray())
+							)	
+					);
+        			
+					//Append results with article with decrypted body
+        			textAreaResult.appendText("ID: " + toDisplay.getID() + "\n");
+        			textAreaResult.appendText("Header: " + new String(toDisplay.getHeader()) + "\n");
+        			textAreaResult.appendText("Group: " + new String(toDisplay.getGroup()) + "\n");
+        			textAreaResult.appendText("Title: " + new String(toDisplay.getTitle()) + "\n");
+        			textAreaResult.appendText("Description: " + new String(toDisplay.getShortDescription()) + "\n");
+        			textAreaResult.appendText("Keywords: " + new String(toDisplay.getKeywords()) + "\n");
+        			textAreaResult.appendText("Body: " + new String(decryptedBody) + "\n");
+        			textAreaResult.appendText("References: " + new String(toDisplay.getReferences()) + "\n");
+        			textAreaResult.appendText("Sensitive Title: " + new String(toDisplay.getSensitiveTitle()) + "\n");
+        			textAreaResult.appendText("Author: " + new String(toDisplay.getAuthor()) + "\n");
+        			textAreaResult.appendText("--------------------------------------------------\n"); // Separator
+					
+				} catch (Exception e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+        		
+        		}}else {
+        			textAreaResult.appendText("ID: " + article.getID() + "\n");
+        			textAreaResult.appendText("Header: " + new String(article.getHeader()) + "\n");
+        			textAreaResult.appendText("Group: " + new String(article.getGroup()) + "\n");
+        			textAreaResult.appendText("Title: " + new String(article.getTitle()) + "\n");
+        			textAreaResult.appendText("Description: " + new String(article.getShortDescription()) + "\n");
+        			textAreaResult.appendText("Keywords: " + new String(article.getKeywords()) + "\n");
+        			textAreaResult.appendText("Body: " + new String(article.getBody()) + "\n");
+        			textAreaResult.appendText("References: " + new String(article.getReferences()) + "\n");
+        			textAreaResult.appendText("Sensitive Title: " + new String(article.getSensitiveTitle()) + "\n");
+        			textAreaResult.appendText("Author: " + new String(article.getAuthor()) + "\n");
+        			textAreaResult.appendText("--------------------------------------------------\n"); // Separator
+        		}
         	}
+    		}
         });
         
         //Button for searching based on keyword or title query
@@ -1045,6 +2153,41 @@ public class HelpSystemUI extends Application {
                 
                 //List found articles accordingly
                 for (Article article : articles) {
+                	String sensTitle = new String(article.getSensitiveTitle());
+                	//Check for admin access
+                	if (sensTitle.equals("Sensitive")) {
+            		if (databaseHelper.hasAccess(currentUser.getUsername(), article.getTitle())) {
+            			Article toDisplay = article;
+            			String body = new String(article.getBody());
+            			try {
+            				//Decrypt the body
+            				char[] decryptedBody = EncryptionUtils.toCharArray(
+    							//Decode body
+    							encryptionHelper.decrypt(
+    									Base64.getDecoder().decode(
+    											body
+    									), 
+    									EncryptionUtils.getInitializationVector(ivVal.toCharArray())
+    							)	
+    					);
+    					
+    					//Append results with article with decrypted body
+            			textAreaResult.appendText("ID: " + toDisplay.getID() + "\n");
+            			textAreaResult.appendText("Header: " + new String(toDisplay.getHeader()) + "\n");
+            			textAreaResult.appendText("Group: " + new String(toDisplay.getGroup()) + "\n");
+            			textAreaResult.appendText("Title: " + new String(toDisplay.getTitle()) + "\n");
+            			textAreaResult.appendText("Description: " + new String(toDisplay.getShortDescription()) + "\n");
+            			textAreaResult.appendText("Keywords: " + new String(toDisplay.getKeywords()) + "\n");
+            			textAreaResult.appendText("Body: " + new String(decryptedBody) + "\n");
+            			textAreaResult.appendText("References: " + new String(toDisplay.getReferences()) + "\n");
+            			textAreaResult.appendText("Sensitive Title: " + new String(toDisplay.getSensitiveTitle()) + "\n");
+            			textAreaResult.appendText("Author: " + new String(toDisplay.getAuthor()) + "\n");
+            			textAreaResult.appendText("--------------------------------------------------\n"); // Separator
+    					
+    				} catch (Exception e1) {
+    					// TODO Auto-generated catch block
+    					e1.printStackTrace();
+    				}}}else {
                 	textAreaResult.appendText("ID: " + article.getID() + "\n");
                 	textAreaResult.appendText("Header: " + new String(article.getHeader()) + "\n");
                     textAreaResult.appendText("Group: " + new String(article.getGroup()) + "\n");
@@ -1054,10 +2197,10 @@ public class HelpSystemUI extends Application {
                     textAreaResult.appendText("Body: " + new String(article.getBody()) + "\n");
                     textAreaResult.appendText("References: " + new String(article.getReferences()) + "\n");
                     textAreaResult.appendText("Sensitive Title: " + new String(article.getSensitiveTitle()) + "\n");
-                    textAreaResult.appendText("Sensitive Description: " + new String(article.getSensitiveDescription()) + "\n");
+                    textAreaResult.appendText("Author: " + new String(article.getAuthor()) + "\n");
                     textAreaResult.appendText("--------------------------------------------------\n"); // Separator
                 }
-               
+            	}
             } catch (SQLException ex) {
                 ex.printStackTrace();
                 showAlert("Error", "Could not load articles from the database.");
@@ -1242,7 +2385,7 @@ public class HelpSystemUI extends Application {
         Button backupButton = new Button("Backup Articles");
         backupButton.setStyle("-fx-background-color: #FFD700;");
         grid.add(backupButton, 0, 4);
-        backupButton.setOnAction(e -> performBackup(fileName.getText(), groupInputArea.getText()));
+        backupButton.setOnAction(e -> performBackup(fileName.getText(), groupInputArea.getText(), currentUser));
         
         // Set up the scene and display it on the provided stage
         Scene scene = new Scene(grid, 550, 400);
@@ -1274,7 +2417,7 @@ public class HelpSystemUI extends Application {
        Button backupButton = new Button("Backup Articles");
        backupButton.setStyle("-fx-background-color: #FFD700;");
        grid.add(backupButton, 0, 2);
-       backupButton.setOnAction(e -> performBackupAll(fileName.getText()));
+       backupButton.setOnAction(e -> performBackupAll(fileName.getText(), currentUser));
       
        // Set up the scene and display it on the provided stage
        Scene scene = new Scene(grid, 550, 400);
@@ -1287,10 +2430,10 @@ public class HelpSystemUI extends Application {
     * Allows the backup of all articles by using backupAllArticles from databaseHelper
     * @param filename
     */
-   private void performBackupAll(String filename) {
+   private void performBackupAll(String filename, User currentUser) {
 	   try {
 		   //Attempts to back up every single current article
-		   databaseHelper.backupAllArticles(filename);
+		   databaseHelper.backupAllArticles(filename, currentUser);
 		   System.out.println("Backup completed successfully for all groups.");
 	   } catch (Exception e) {
 		   //Backup failed
@@ -1302,7 +2445,7 @@ public class HelpSystemUI extends Application {
     * @param fileName
     * @param groupInput
     */
-    private void performBackup(String fileName, String groupInput) {
+    private void performBackup(String fileName, String groupInput, User currentUser) {
         try {
             // Split the input by new lines or commas to handle multiple groups
             String[] groups = groupInput.split("[,\n]+");
@@ -1310,7 +2453,7 @@ public class HelpSystemUI extends Application {
                 group = group.trim(); // Trim whitespace
                 if (!group.isEmpty()) {
                     //Backup the articles using databaseHelper
-                    databaseHelper.backupArticles(fileName, group);
+                    databaseHelper.backupArticles(fileName, group, currentUser);
                 }
             }
             System.out.println("Backup completed successfully for specified groups.");

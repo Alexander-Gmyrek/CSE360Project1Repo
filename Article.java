@@ -19,6 +19,7 @@ import java.io.Serializable;
 public class Article implements Serializable {
 	//private instance variables for article information
 	private int id;
+	private int sequenceNum;
 	private char[] title; //title of article  
     private char[] shortDescription; //abstract for article
     private char[] keywords; //keywords of the article
@@ -27,7 +28,7 @@ public class Article implements Serializable {
     private char[] header;
     private char[] group;
     private char[] sensitiveTitle;
-    private char[] sensitiveDescription;
+    private char[] author;
     /**
      * Constructor for the Article class that sets the title, authors, abstract, keywords, body text, and references
      * so that the article has information that be read by the user.
@@ -39,7 +40,7 @@ public class Article implements Serializable {
      * @param references
      */
     public Article(int id, char[] header, char[] group, char[] title, char[] shortDescription,
-    		char[] keywords, char[] body, char[] references, char[] sensitiveTitle, char[] sensitiveDescription) {
+    		char[] keywords, char[] body, char[] references, char[] sensitiveTitle, char[] author, int sequenceNum) {
     	// Generate a unique long integer identifier for the article ID
 	    this.id = id;
         this.header = header;
@@ -50,7 +51,8 @@ public class Article implements Serializable {
         this.keywords = keywords;
         this.body = body;
         this.references = references;
-        this.sensitiveDescription = sensitiveDescription;
+        this.author = author;
+        this.sequenceNum = sequenceNum;
     }
    
     // Getter methods
@@ -60,6 +62,13 @@ public class Article implements Serializable {
     public Article() {
 		//Default, no values entered
 	}
+    
+    /**
+     * @return sequenceNum that is generated from user/instructor searches
+     */
+    public int getSNum() {
+    	return sequenceNum;
+    }
 
     /**
      * @return the ID
@@ -127,11 +136,20 @@ public class Article implements Serializable {
     /**
      * @return the sensitive description
      */
-    public char[] getSensitiveDescription() {
-        return sensitiveDescription;
+    public char[] getAuthor() {
+        return author;
     }
     
     // Setter methods
+    
+    
+    /**
+     * Set the sequence number for student and instructor searching
+     * @param sequenceNum
+     */
+    public void setSNum(int sequenceNum) {
+    	this.sequenceNum = sequenceNum;
+    }
     
     /**
      * Sets the ID value
@@ -209,7 +227,7 @@ public class Article implements Serializable {
      * set sensitive description value
      * @param sensitiveDescription
      */
-    public void setSensitiveDescription(char[] sensitiveDescription) {
-        this.sensitiveDescription = sensitiveDescription;
+    public void setAuthor(char[] author) {
+        this.author = author;
     }
 }
